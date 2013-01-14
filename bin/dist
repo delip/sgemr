@@ -1,0 +1,256 @@
+#!/bin/sh
+
+#############################
+## MAP/REDUCE SCRIPT USING
+## THE SUN GRID ENGINE
+## Please report bugs to
+## delip@cs.jhu.edu
+##############################
+
+DISTSPLIT=0
+NOSPLIT=0
+SAVEWORK=1
+JOBNAME=""
+EXEC=`basename $0`
+INFILE=""
+FILELIST=""
+WORKER_ARGS=""
+NOTIFY_LIST=""
+CURDIR=`pwd`
+NUMWORKERS=""
+WORKER_CODE=""
+REDUCER_CODE=""
+OUTFILE=""
+ENABLE_COMBINER=0
+COMBINER_CODE=""
+COMBINER_ARGS=""
+
+# end of all globals
+
+TIMEVAR=`date`
+echo Start time : $TIMEVAR
+if [ "$MRHOME" = "" ]; then
+  echo Fatal : Environment variable MRHOME not set!
+  exit
+fi
+
+DEFAULT_MAPPER=$MRHOME/line-mapper
+NULL_REDUCER=$MRHOME/null-reducer
+IDENTITY_REDUCER=$MRHOME/identity-reducer
+SUM_REDUCER=$MRHOME/sum-reducer
+
+. $MRHOME/getopt.sh
+
+function printUsageAndExit {
+cat << ENDOFUSAGE
+
+$EXEC - A map/reduce setup using the Sun grid engine.
+Contact - delip@cs.jhu.edu
+Not all argument combinations are valid. Use your intuition!
+
+Arguments:
+--no-split   : Use input file as is
+--dist-split : Use distributed line count
+  Only used with the default mapper.
+--job-name   : Name of the job (mandatory)
+--num-workers: Number of workers
+  Note - The SGE has a quota of 60 per user.
+--mapper     : Path to the mapper script.
+  The default mapper will be used when this is not provided.
+  Default mapper splits the input equally (by #lines). 
+  When a mapper is provided, --no-split is enabled
+--mapper-argstr : Arguments to the mapper script
+--worker     : Path to the worker script (mandatory)
+--worker-argstr : Arguments to the worker script
+--reducer    : One of 'null', 'identity', 'sum', or path to the reducer script.
+  null reducer does no action.
+  identity reducer concats the worker outputs.
+  sum reduce adds worker outputs
+--reducer-argstr : Arguments to the reducer script
+--enable-combiner: Flag to run combiner
+  As of now, combiner is the reducer that runs on worker nodes to 
+  partially aggregate results
+--infile     : Input file to work on
+--infilelist : List of input files
+  Either one of --infile or --infilelist must be specified
+  If --infilelist is specified, the mapper is skipped and --no-split is enabled.
+--notify     : Receive job completion notification by email
+  For multiple recepients separate email-ids by comma.
+--outfile    : Output file that will contain combined result
+--rm-workdir : Delete work directory containing intermediate files
+--help       : This help
+ENDOFUSAGE
+exit 1
+}
+
+GETOPTSTR="help no-split dist-split job-name: /
+num-workers: infile: mapper: worker: reducer: /
+mapper-argstr: worker-argstr: reducer-argstr: /
+enable-combiner infilelist: notify: outfile: rm-workdir"
+
+function parseCmdLine {
+while getoptex "$GETOPTSTR" "$@"
+do
+  case "$OPTOPT" in
+    "no-split")
+    NOSPLIT=1
+    ;;
+    "job-name")
+    JOBNAME=$OPTARG
+    ;;
+    "num-workers")
+    NUMWORKERS=$OPTARG
+    ;;
+    "infile")
+    INFILE=$OPTARG
+    ;;
+    "infilelist")
+    FILELIST=$OPTARG
+    NOSPLIT=1
+    ;;
+    "rm-workdir")
+    SAVEWORK=0
+    ;;
+    "dist-split")
+    DISTSPLIT=1
+    ;;
+    "enable-combiner")
+    ENABLE_COMBINER=1
+    ;;
+    "mapper")
+    MAPPER=$OPTARG
+    NOSPLIT=1
+    ;;
+    "mapper-argstr")
+    MAPPER_ARGS=$OPTARG
+    ;;
+    "reducer")
+    REDUCER_CODE=$OPTARG
+    ;;
+    "reducer-argstr")
+    REDUCER_ARGS=$OPTARG
+    ;;
+    "worker")
+    WORKER_CODE=$OPTARG
+    ;;
+    "worker-argstr")
+    WORKER_ARGS=$OPTARG
+    ;;
+    "notify")
+    NOTIFY_LIST=$OPTARG
+    ;;
+    "outfile")
+    OUTFILE=$OPTARG
+    ;;
+    "help")
+    printUsageAndExit
+    ;;
+  esac
+done
+shift $[OPTIND-1]
+UNUSED_ARGS=$@
+if [ "$UNUSED_ARGS" != "" ]; then
+  echo "Error: Following arguments were unused => $UNUSED_ARGS"
+  echo "This mostly indicates an error invoking the script"
+  echo "For help, try : $EXEC --help"
+  exit
+fi
+}
+
+
+if [ "$#" -eq 0 ]; then
+  printUsageAndExit
+fi
+
+parseCmdLine $*
+
+if [ "$NUMWORKERS" = "" ]; then
+  echo "Fatal: Must specify --num-workers"
+  exit
+fi
+
+if [ "$JOBNAME" = "" ]; then
+  echo "Fatal: Must specify --job-name"
+  exit
+fi
+
+if [ "$WORKER_CODE" = "" ]; then
+  echo "Fatal: Must specify --worker"
+  exit
+fi
+
+if [ "$REDUCER_CODE" = "" ]; then
+  echo "Fatal: Must specify --reducer"
+  exit
+fi
+
+if [ "$REDUCER_CODE" = "null" ]; then
+  REDUCER_CODE=$NULL_REDUCER
+elif [ "$REDUCER_CODE" = "identity" ]; then
+  REDUCER_CODE=$IDENTITY_REDUCER
+elif [ "$REDUCER_CODE" = "sum" ]; then
+  REDUCER_CODE=$SUM_REDUCER
+fi
+
+if [ "$ENABLE_COMBINER" = "1" ]; then
+  COMBINER_CODE=$REDUCER_CODE
+  COMBINER_ARGS=$REDUCER_ARGS
+fi
+
+WORKDIR=$CURDIR/$JOBNAME-$RANDOM
+echo Work directory : $WORKDIR
+
+mkdir $WORKDIR
+if [ "$FILELIST" = "" ]; then
+  FILELIST=$WORKDIR/split-file-list
+fi
+
+if [ "$MAPPER" != "" ]; then
+  $MAPPER $INFILE $WORKDIR $NUMWORKERS $MAPPER_ARGS $FILELIST
+elif [ "$NOSPLIT" = "0" ]; then
+  $DEFAULT_MAPPER $INFILE $WORKDIR $NUMWORKERS "distsplit:$DISTSPLIT" $FILELIST
+fi
+
+NUMLINES=`wc -l $FILELIST | cut -f1 -d' '`
+RES=`echo $NUMLINES%$NUMWORKERS | bc`
+
+if [ "$RES" = "0" ]; then
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS | bc`
+else
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS + 1 | bc`
+fi
+split -l $NUMLINES $FILELIST $WORKDIR/workunit
+
+for workunit in `ls $WORKDIR/workunit*`
+do
+  BASEFILE=`basename $workunit`
+  qsub -N $JOBNAME -S /bin/sh -e $WORKDIR/$BASEFILE.stderr -o $WORKDIR/$BASEFILE.stdout $MRHOME/dist-worker $WORKER_CODE $WORKDIR $workunit $WORKER_ARGS $COMBINER_CODE $COMBINER_ARGS
+done
+
+echo Waiting for workers ...
+sleep 5;
+while true; do
+  RES=`qstat -u $USER | grep $JOBNAME | wc -l`
+  if [ "$RES" = "0" ]; then
+    break
+  fi
+  sleep 30
+done
+
+echo Executing reducer ...
+
+REDUCER_SUFFIX="result"
+$REDUCER_CODE $WORKDIR $OUTFILE $REDUCER_SUFFIX $REDUCER_ARGS
+
+if [ "$NOTIFY_LIST" != "" ]; then
+  echo "Work directory : $WORKDIR " | mail -s "Job $JOBNAME completed" $NOTIFY_LIST
+fi
+
+# TODO : Add code for reducer
+if [ "$SAVEWORK" = "0" ]; then
+  rm -Rf $WORKDIR
+fi
+
+TIMEVAR=`date`
+echo End time : $TIMEVAR
+echo "Done!!!"

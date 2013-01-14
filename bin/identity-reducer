@@ -1,0 +1,12 @@
+#!/bin/sh
+
+WORKDIR=$1
+OUTFILE=$2
+SUFFIX=$3
+REDUCER_ARGS=$4
+
+rm -Rf $OUTFILE
+for file in `find $WORKDIR -name "*.$SUFFIX" | sort`
+do
+  cat $file >> $OUTFILE
+done

@@ -1,0 +1,27 @@
+#!/bin/sh
+WORKER_CODE=$1
+WORKDIR=$2
+WORKUNIT=$3
+WORKARGS=$4
+COMBINER_CODE=$5
+COMBINER_ARGS=$6
+SUFFIX="result"
+
+if [ "$COMBINER_CODE" != "" ]; then
+  SUFFIX=`basename $WORKUNIT`
+  SUFFIX="$SUFFIX.out"
+fi
+
+VAL=0
+TOTAL=`wc -l $WORKUNIT | cut -f1 -d' '`
+for workfile in `cat $WORKUNIT`
+do
+  VAL=$((VAL+1))
+  basefile=`basename $workfile`
+  echo "Processing ($VAL of $TOTAL) : $basefile"
+  $WORKER_CODE $workfile $WORKARGS > $WORKDIR/$basefile.$SUFFIX 2> $WORKDIR/$basefile.error
+done
+
+if [ "$COMBINER_CODE" != "" ]; then
+  $COMBINER_CODE $WORKDIR $WORKUNIT.result $SUFFIX $COMBINER_ARGS
+fi

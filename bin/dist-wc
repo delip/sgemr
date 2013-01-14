@@ -1,0 +1,45 @@
+if [ $# -lt 2 ]; then
+  EXEC=`basename $0`
+  echo $EXEC FILE NUM-WORKERS [optional args]
+  exit
+fi
+
+FILE=$1
+NUMWORKERS=$2
+shift 2
+OTHER=$@
+
+CURDIR=`pwd`
+WORKDIR=$CURDIR/wc-work-$RANDOM
+mkdir $WORKDIR
+
+NUMBYTES=`du -sb $FILE | cut -f1`
+RES=`echo $NUMBYTES%$NUMWORKERS | bc`
+if [ "$RES" = "0" ]; then
+  NUMBYTES=`echo $NUMBYTES/$NUMWORKERS | bc`
+else
+  NUMBYTES=`echo $NUMBYTES/$NUMWORKERS + 1 | bc`
+fi
+
+FILEBASE=`basename $FILE`
+split -b $NUMBYTES $FILE $WORKDIR/$FILEBASE.split
+for i in `find $WORKDIR/ -name "*.split*"`
+do
+  qsub -S /bin/sh -e $WORKDIR/stderr-ignore -o $i.count /home/delip/bin/gridexec.sh wc $OTHER $i
+done
+sleep 10;
+while true; do
+  RES=`qstat -u $USER | wc -l`
+  if [ "$RES" = "0" ]; then
+    break
+  fi
+  sleep 5
+done
+
+TOTAL=0
+for i in `grep -P "^\d+" $WORKDIR/*.count | cut -f2 -d':'| cut -f1 -d' '`
+do
+  TOTAL=`expr $TOTAL + $i`
+done
+echo Result: $TOTAL
+rm -Rf $WORKDIR

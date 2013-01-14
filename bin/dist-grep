@@ -1,0 +1,49 @@
+if [ $# -lt 2 ]; then
+  EXEC=`basename $0`
+  echo $EXEC PATTERN FILE NUM-WORKERS [optional args]
+  exit
+fi
+PATTERN=$1
+FILE=$2
+NUMWORKERS=$3
+shift 3
+OTHER=$@
+
+CURDIR=`pwd`
+WORKDIR=$CURDIR/grep-work-$RANDOM
+echo Workdir : $WORKDIR
+
+mkdir $WORKDIR
+
+echo Calculating number of lines ...
+#NUMLINES=`sh dist-wc $FILE $NUMWORKERS -l | grep "^Result:" | cut -f2 -d' '`
+NUMLINES=`wc -l $FILE | cut -f1 -d' '`
+RES=`echo $NUMLINES%$NUMWORKERS | bc`
+if [ "$RES" = "0" ]; then
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS | bc`
+else
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS + 1 | bc`
+fi
+
+echo Starting jobs ...
+split -l $NUMLINES $FILE $WORKDIR/$FILE.split
+for i in `find $WORKDIR/ -name "*.split*"`
+do
+ qsub -S /bin/sh -e $WORKDIR/stderr-ignore -o $i.grp /home/delip/bin/gridexec.sh grep $OTHER $PATTERN $i
+done
+echo Waiting for workers ...
+sleep 5;
+while true; do
+  RES=`qstat -u $USER | wc -l`
+  if [ "$RES" = "0" ]; then
+    break
+  fi
+  sleep 5
+done
+rm -f $FILE.grepresult
+for i in `find $WORKDIR -name "*.grp" | sort`
+do
+  cat $i >> $FILE.grepresult
+done
+echo Done!
+rm -Rf  $WORKDIR

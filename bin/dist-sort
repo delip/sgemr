@@ -1,0 +1,44 @@
+if [ $# -lt 2 ]; then
+  EXEC=`basename $0`
+  echo $EXEC FILE NUM-WORKERS [optional args]
+  exit
+fi
+FILE=$1
+NUMWORKERS=$2
+shift 2
+OTHER=$@
+
+CURDIR=`pwd`
+WORKDIR=$CURDIR/sort-work-$RANDOM
+echo Workdir : $WORKDIR
+
+mkdir $WORKDIR
+
+echo Calculating number of lines ...
+#NUMLINES=`sh dist-wc $FILE $NUMWORKERS -l | grep "^Result:" | cut -f2 -d' '`
+NUMLINES=`wc -l $FILE | cut -f1 -d' '`
+RES=`echo $NUMLINES%$NUMWORKERS | bc`
+if [ "$RES" = "0" ]; then
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS | bc`
+else
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS + 1 | bc`
+fi
+
+echo Starting jobs ...
+split -l $NUMLINES $FILE $WORKDIR/$FILE.split
+for i in `find $WORKDIR/ -name "*.split*"`
+do
+  qsub -S /bin/sh -e $WORKDIR/stderr-ignore -o $i.sorted /home/delip/bin/gridexec.sh sort $OTHER $i
+done
+echo Waiting for workers ...
+sleep 5;
+while true; do
+  RES=`qstat -u $USER | wc -l`
+  if [ "$RES" = "0" ]; then
+    break
+  fi
+  sleep 5
+done
+sort -m $OTHER $WORKDIR/*.sorted > $FILE.sorted
+echo Done!
+rm -Rf  $WORKDIR

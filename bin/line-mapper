@@ -1,0 +1,23 @@
+#!/bin/sh
+
+INFILE=$1
+WORKDIR=$2
+NUMWORKERS=$3
+DISTSPLIT=$4
+FILE_LIST=$5
+
+BASEFILE=`basename $INFILE`
+if [ "$DISTSPLIT" = "distsplit:1" ]; then
+  NUMLINES=`$MRHOME/dist-wc $INFILE $NUMWORKERS -l | grep "^Result:" | cut -f2 -d' '`
+else
+  NUMLINES=`wc -l $INFILE | cut -f1 -d' '`
+fi
+echo NUMLINES : $NUMLINES
+RES=`echo $NUMLINES%$NUMWORKERS | bc`
+if [ "$RES" = "0" ]; then
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS | bc`
+else
+  NUMLINES=`echo $NUMLINES/$NUMWORKERS + 1 | bc`
+fi
+split -l $NUMLINES $INFILE $WORKDIR/$BASEFILE.split
+find $WORKDIR/ -name "$BASEFILE.split*"  > $FILE_LIST

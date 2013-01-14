@@ -1,0 +1,17 @@
+#!/bin/sh
+
+WORKDIR=$1
+OUTFILE=$2
+SUFFIX=$3
+REDUCER_ARGS=$4
+
+rm -Rf $OUTFILE
+RES=0
+for file in `find $WORKDIR -name "*.$SUFFIX" | sort`
+do
+  for val in `cat $file`
+  do
+    RES=$((RES + val))
+  done
+done
+echo $RES >> $OUTFILE
