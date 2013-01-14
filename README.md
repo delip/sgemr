@@ -1,18 +1,24 @@
 sgemr
 =====
 
-A map-reduce imitation using the Sun Grid Engine. This is really esoteric software that I used a lot in grad school but putting it out there for anyone to use.
+A map-reduce imitation using the Sun Grid Engine. This is really esoteric software that I used a lot in grad school but 
+putting it out there for anyone to use. You really should be using a real map-reduce but if you are constrained to the Sun Grid Engine
+this is a way to distribute jobs without worrying about sharding, etc.
 
 Installation
 ------------
 
 1. Clone this repo to a directory, say `mrinstall`.
-2. Set `MRHOME` appropriately
-`export MRHOME=/home/delip/mrinstall/bin`
-`setenv MRHOME /home/delip/mrinstall/bin`
+2. Set MRHOME appropriately
+
+	export MRHOME=/home/delip/mrinstall/bin
+	
+	setenv MRHOME /home/delip/mrinstall/bin
 
 Tutorial
 --------
+A detailed tutorial with examples is available here:
+
 http://docs.google.com/Presentation?id=dhdwqnx7_67gn2ss8f7
 
 dist options
